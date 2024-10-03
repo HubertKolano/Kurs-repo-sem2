@@ -6,7 +6,7 @@ library(readr)       # import danych
 library(broom.mixed) # konwersja 
 library(dotwhisker)  # wizualizacja
 library(GGally)
-
+library(ggplot2)
 
 
 colnames(airquality) <- tolower(colnames(airquality))
@@ -22,17 +22,26 @@ air
 ggpairs(air)
 
 # budowa modelu regresji liniowej bez interakcji
-model <- lm(ozone ~ solar.r + wind + temp + month, data = air)
+lm_mod <- lm(ozone ~ solar.r + wind + temp + month, data = air)
 
 # podsumowanie modelu
-summary(model)
+summary(lm_mod)
 
-# wykonanie prognoz na podstawie modelu
+# wykonanie prognoz na podstawie modelu i wstawienie jej do tabeli air
 predictions <- predict(model, newdata = air)
+air <- air |>  mutate(predicted_ozone = predict(model, newdata = air))
 
 # podgląd prognoz
 head(predictions)
 
 # wpływ miesiąca na poziom ozonu
-summary(model)
+summary(lm_mod)
 
+
+# wykres 
+ggplot(air,
+       aes(ozone, predicted_ozone)) +      # returns a ggplot object 
+  geom_jitter() +                         # same
+  geom_smooth(method = lm, se = FALSE) +  # same                    
+  labs(x = "Volume", y = "Width")         # etc
+  
