@@ -34,5 +34,5 @@ predictions <- predict(model, newdata = air)
 head(predictions)
 
 # wpływ miesiąca na poziom ozonu
-summary(model)$coefficients
+summary(model)
 
