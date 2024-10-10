@@ -90,10 +90,10 @@ head(predictions)
 summary(lm_mod)
 
 
-# wykres 
+# wykres przewidywanych wartości vs rzeczywistych.
 ggplot(air,
-       aes(ozone, predicted_ozone)) +      # returns a ggplot object 
-  geom_jitter() +                         # same
-  geom_smooth(method = lm, se = FALSE) +  # same                    
-  labs(x = "Volume", y = "Width")         # etc
+       aes(ozone, predicted_ozone)) +      
+  geom_jitter() +                         
+  geom_smooth(method = lm, se = FALSE) +                     
+  labs(x = "Rzeczywiste wartości O3", y = "Prognozowane wartości O3")         
 ```
