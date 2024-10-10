@@ -1,0 +1,99 @@
+---
+title: "Cwiczenie 1"
+author: "Hubert Kolano"
+date: "October 3, 2024"
+abstract-title: "Temat"
+abstract: " Konstrukcja modelu w tidymodels"
+format:
+  html:
+    toc: true
+    toc-location: right-body
+    toc-title: "Spis treści"
+    number-sections: true
+    code-fold: show
+    code-summary: "Ukryj/pokaż kod"
+    code-tools: true
+    code-copy: hover
+    smooth-scroll: false
+    theme:
+      light: cosmo
+      dark: darkly
+    fontsize: 1.0em
+    linestretch: 1.5
+      
+execute: 
+  output: true
+  cache: true #optymalizuje renderowanie, zapisując obiekty w pamięci
+  warning: false #nie pokazuj komunikatów
+  fig-align: right
+  fig-width: 6
+  fig-height: 5
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+#| echo: false
+library(tidymodels)
+library(parsnip)
+
+# Helper packages
+library(readr)       # import danych
+library(broom.mixed) # konwersja 
+library(dotwhisker)  # wizualizacja
+library(GGally)
+library(ggplot2)
+```
+
+## Treść zadania
+
+Opracuj model prognoz `O3` na podstawie zestawu danych `airquality`. Następnie wykonaj prognozę dla dowolnego zestawu danych. sprawdzić czy miesiące mają wpływ na prognozę. Usuń braki danych. Zastanów się jak przekształcić zmienne. Nie uwzględniaj zmiennej `day` w prognozach. Nie uwzględniaj interakcji między zmiennymi. W celu podglądnięcia danych zastosuj funkcje pakietu `gggally`. Zastosuj tylko metodę najmniejszych kwadratów.
+
+Zacznij od przygotowania danych, zastanów się co tu robimy. Opisz w komentarzach poszczególne kroki korzystając z systemu pomocy R.
+
+```{r}
+colnames(airquality) <- tolower(colnames(airquality))
+
+air <-
+  airquality |>
+  as_tibble() |>
+  na.omit() |> 
+  select(-day) |> 
+  mutate(month = factor(month)) 
+```
+
+## Wykonanie Ćwiczenia
+
+Kod z komentarzami wykonujący ćwiczenie:
+
+```{r}
+
+air
+
+ggpairs(air)
+
+# budowa modelu regresji liniowej bez interakcji
+lm_mod <- lm(ozone ~ solar.r + wind + temp + month, data = air)
+
+# podsumowanie modelu
+summary(lm_mod)
+
+# wykonanie prognoz na podstawie modelu i wstawienie jej do tabeli air
+predictions <- predict(lm_mod, newdata = air)
+air <- air |>  mutate(predicted_ozone = predict(lm_mod, newdata = air))
+
+# podgląd prognoz
+head(predictions)
+
+# wpływ miesiąca na poziom ozonu
+summary(lm_mod)
+
+
+# wykres 
+ggplot(air,
+       aes(ozone, predicted_ozone)) +      # returns a ggplot object 
+  geom_jitter() +                         # same
+  geom_smooth(method = lm, se = FALSE) +  # same                    
+  labs(x = "Volume", y = "Width")         # etc
+```

@@ -28,8 +28,8 @@ lm_mod <- lm(ozone ~ solar.r + wind + temp + month, data = air)
 summary(lm_mod)
 
 # wykonanie prognoz na podstawie modelu i wstawienie jej do tabeli air
-predictions <- predict(model, newdata = air)
-air <- air |>  mutate(predicted_ozone = predict(model, newdata = air))
+predictions <- predict(lm_mod, newdata = air)
+air <- air |>  mutate(predicted_ozone = predict(lm_mod, newdata = air))
 
 # podgląd prognoz
 head(predictions)
