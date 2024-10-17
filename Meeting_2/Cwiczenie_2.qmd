@@ -1,0 +1,223 @@
+---
+title: "Cwiczenie 2"
+author: "Hubert Kolano"
+date: today
+abstract-title: "Temat"
+abstract: " Konstrukcja modelu w tidymodels"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    toc-title: Spis Treści
+    number-sections: true
+    number-depth: 3
+    embed-resources: true
+    html-math-method: katex
+    code-tools: true
+    code-block-bg: true
+    code-fold: show
+    code-summary: "Show and hide code"
+    link-external-icon: true
+    link-external-newwindow: true
+    smooth-scroll: true
+    self-contained: true
+    citation: true
+    theme: 
+        dark: solar
+        light: flatly
+    fontsize: 1.0em
+    linestretch: 1.3
+    fig-align: center
+execute: 
+  echo: true
+  error: false
+  warning: false
+  output: true
+---
+
+```{r}
+#| echo: false
+library(tidymodels)
+library(skimr)
+library(recipes)
+library(openair) 
+tidymodels_prefer()
+library(GGally)
+library(ggplot2)
+library(ggpubr)
+```
+
+## Treść zadania
+
+Opracuj model prognoz `O3` na podstawie zestawu danych `airquality`. Następnie wykonaj prognozę dla dowolnego zestawu danych. sprawdzić czy miesiące mają wpływ na prognozę. Usuń braki danych. Zastanów się jak przekształcić zmienne. Nie uwzględniaj zmiennej `day` w prognozach. Nie uwzględniaj interakcji między zmiennymi. W celu podglądnięcia danych zastosuj funkcje pakietu `gggally`. Zastosuj tylko metodę najmniejszych kwadratów.
+
+Zacznij od przygotowania danych, zastanów się co tu robimy. Opisz w komentarzach poszczególne kroki korzystając z systemu pomocy R.
+
+```{r}
+colnames(airquality) <- tolower(colnames(airquality))
+
+air <- mydata |> selectByDate(year = 2001) 
+air |> skim()
+```
+
+W zbiorze danych znajdują się zmienne typu `numeric` oraz `POSIXct`. Dane charakteryzują się wysoką kompletnością. W tym przypadku usuniemy brakujące dane. Teoretycznie powinna być wykonana.
+
+```{r}
+air <- air |> na.omit()
+```
+
+Pytania: które zmienne są ważne w predykcji stężeń ozonu? Zgodnie z aktualnym stanem wiedzy istotne są parametry meteorologiczne, grupy czasu oraz tlenki azotu (przemiany chemiczne). Na wszelki wypadek przyjrzyjmy się współczynnikom korelacji.
+
+```{r}
+set.seed(222)
+air[sample(1:nrow(air), size = 300, replace = T),] |> 
+  select(nox, no2) |> 
+  ggpairs()
+```
+
+```{r}
+# wykres regresji liniowej, do sprawdzenia danych 
+set.seed(222)
+air[sample(1:nrow(air), size = 300, replace = T),] |> 
+  select(nox, no2) |> 
+  ggplot(aes(nox, no2)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = T, formula = y ~ x) + 
+  stat_cor(label.x = 10, label.y = 80) + 
+  stat_regline_equation(label.x = 10, label.y = 82) +
+  theme_bw()
+```
+
+Wydaje się, że nasze założenia są poprawne. Zauważ, że nox i no2 są mocno skorelowane.
+
+Przyjrzymy się stężeniom ozonu.
+
+```{r}
+air |>    
+  ggplot(aes(date, o3)) +     
+  geom_line() +     
+  theme_bw()
+```
+
+Przyjmijmy założenie, że wysokie stężenia ozonu, to O3\>10μgm3O3​\>10m3μg​, a niskie to O3\<10μgm3O3​\<10m3μg​. Skorzystamy z podstawowej funkcji `cut` do przekształcenia zmiennej ilościowej na jakościową.
+
+```{r}
+air |> 
+  pull(o3) |> 
+  range()  
+```
+
+```{r}
+air <-
+  air |>
+  mutate(ozone = cut(
+    o3,
+    breaks = c(-0.1, 10, 58),
+    labels = c("Niskie", "Wysokie")
+  ))
+```
+
+Sprawdzamy
+
+air \|\> count(ozone)
+
+```{r}
+air |> count(ozone)
+```
+
+Teraz zbuduj i przetestuj model regresji logistycznej. Następnie oceń jakość. Zastanów się, które zmienne uwzględnić w modelu, a które nie. Podczas dzielenia zestawu danych zastosuj równomierny podział danych (argument `strata = ozone`).
+
+-   Czy zmienne `date, wd, pm10, pm25, so2, co` wnoszą coś do modelu ?
+
+-   Zastanów się jakie role przypisać `no2` i `nox`, ponieważ te dwa predyktory są z sobą mocno skorelowane.
+
+-   Czy stosować przekształcenia `boxCox` lub `YeoJohnson` - dla jakich zmiennych?
+
+-   Czy normalizacja zmiennych numerycznych jest potrzebna ?
+
+-   Czy wyizolować z `date` podgrupy, które będą ważnymi predatorami.
+
+Zastosój: `set.seed(222)` do podziału danych na zbiory uczące i testowe.
+
+## Wykonanie Ćwiczenia
+
+Kod z komentarzami wykonujący ćwiczenie:
+
+seed został już ustalony przy treści ćwiczenia.
+
+```{r}
+# Usunięcie kolumny z ozonem, który chcemy przewidzieć
+air <- air |> 
+  na.omit() |> 
+  select(-o3)
+
+```
+
+Podział danych na treningowe i testowe z rozkładem równomiernym zmiennej "ozone"
+
+```{r}
+split <- initial_split(data = air, prop = 3/4)
+train_data <- training(split)
+test_data <- testing(split)
+     
+```
+
+Teraz zostaje zbudowany przepis do przetworzenia danych:
+
+```{r}
+air_rec <- recipe(ozone ~., data = train_data) |> 
+  update_role(date, new_role = "predictor") |> 
+  step_date(date, features = c("dow", "month")) |>
+  step_normalize(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE)
+
+air_rec |> prep()
+
+#sprawdzenie rpzepisu:
+summary(air_rec)
+```
+
+Mamy skategoryzowane role w zbiorze danych, teraz należy zbudować model regresji liniowej.
+
+```{r}
+lm_mod <- logistic_reg() |> 
+  set_engine("glm")
+
+
+lm_workflow <-
+  workflow() |> 
+  add_model(lm_mod) |> 
+  add_recipe(air_rec)
+
+
+
+lm_fit <- lm_workflow |> 
+  fit(data = train_data)
+
+
+tidy(lm_fit)
+```
+
+Teraz porownujemy otrzymane rozwiązanie ze zbiorem wcześniej oddzielonym na zbior testowy:
+
+```{r}
+
+# predict(lm_fit, test_data, type = "prob")
+
+results <- 
+  augment(lm_fit, test_data)
+results
+
+
+#obliczymy pewność przewidywań rysując krzywą ROC
+results |> 
+  roc_curve(truth = ozone, .pred_Niskie) |> 
+  autoplot()
+
+
+results |> 
+  roc_auc(truth = ozone, .pred_Niskie)
+```
+
+\
