@@ -21,7 +21,7 @@ format:
     link-external-icon: true
     link-external-newwindow: true
     smooth-scroll: true
-    self-contained: true # a tu dobrze pan zrobił
+    self-contained: true
     citation: true
     theme: 
         dark: solar
@@ -42,10 +42,10 @@ library(tidymodels)
 library(skimr)
 library(recipes)
 library(openair) 
+tidymodels_prefer()
 library(GGally)
 library(ggplot2)
 library(ggpubr)
-tidymodels_prefer() # to zawsze na końcu 
 ```
 
 ## Treść zadania
@@ -164,8 +164,6 @@ test_data <- testing(split)
 ```
 
 Teraz zostaje zbudowany przepis do przetworzenia danych:
-
-Wyżej są pytania, a jakie są odpowiedzi. Po kodzie wnioskuję, że nie ma odp. 
 
 ```{r}
 air_rec <- recipe(ozone ~., data = train_data) |> 

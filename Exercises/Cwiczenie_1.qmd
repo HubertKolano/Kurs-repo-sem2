@@ -15,15 +15,15 @@ format:
     code-tools: true
     code-copy: hover
     smooth-scroll: false
-    self-contained: true 
     theme:
       light: cosmo
       dark: darkly
     fontsize: 1.0em
     linestretch: 1.5
+      
 execute: 
   output: true
-  cache: false #optymalizuje renderowanie, zapisując obiekty w pamięci
+  cache: true #optymalizuje renderowanie, zapisując obiekty w pamięci
   warning: false #nie pokazuj komunikatów
   fig-align: right
   fig-width: 6
@@ -32,8 +32,6 @@ editor: visual
 editor_options: 
   chunk_output_type: console
 ---
-
-MRZ: casche: false, bo optymalizacja nie jest dobra dla projektów github, towrzy dodatkowy zbędny folder. Dokumenty dla komunikacji muszą być lekkie i małe. Na etapie projektu można to włączyć, ale nie zalecam w dłuższej perspektywie 
 
 ```{r}
 #| echo: false
@@ -69,8 +67,6 @@ air <-
 
 Kod z komentarzami wykonujący ćwiczenie:
 
-Zmienne w modelu nie są istotne ? czy jest dostepna inna kombinacja
-
 ```{r}
 
 air
@@ -78,7 +74,7 @@ air
 ggpairs(air)
 
 # budowa modelu regresji liniowej bez interakcji
-lm_mod <- lm(ozone ~ solar.r + wind * temp, data = air)
+lm_mod <- lm(ozone ~ solar.r + wind + temp + month, data = air)
 
 # podsumowanie modelu
 summary(lm_mod)
@@ -93,12 +89,6 @@ head(predictions)
 # wpływ miesiąca na poziom ozonu
 summary(lm_mod)
 
-lm_mod |> 
-  tidy() |> 
-  mutate(pstar = signif_stars(p.value)) |> 
-  gt::gt() |> 
-  gt::fmt_number(decimals = 3) |> 
-  gt::fmt_scientific(columns = p.value)
 
 # wykres przewidywanych wartości vs rzeczywistych.
 ggplot(air,
@@ -107,20 +97,3 @@ ggplot(air,
   geom_smooth(method = lm, se = FALSE) +                     
   labs(x = "Rzeczywiste wartości O3", y = "Prognozowane wartości O3")         
 ```
-
-Korekata wyniku w lepszej formie
-
-```{r}
-library(yardstick)
-
-multi <- yardstick::metric_set(rmse, mae, rsq, rsq_trad)
-
-augment(lm_mod, newdata = air) |> 
-  group_by(month) |> 
-  multi(truth = ozone, estimate = .fitted) |> 
-  pivot_wider(names_from = .metric, values_from = .estimate) |> 
-  gt::gt() |> 
-  gt::fmt_number(decimals = 2)
-```
-
-Brak wniosków 
