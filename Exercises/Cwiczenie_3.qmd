@@ -37,7 +37,6 @@ execute:
 ---
 
 ```{r}
-{r}
 #| echo: false
 library(tidymodels)
 library(skimr)
@@ -46,14 +45,266 @@ library(openair)
 library(GGally)
 library(ggplot2)
 library(ggpubr)
+library(rsample)
+library(tune)
+library(ranger)
 tidymodels_prefer()
 ```
 
 # Treść zadania
 
+Zastosuj metody `reamplingu` (CV, V-krotną CV i bootstrap) do ćwiczenia nr 2. Wykonaj te czynności dla modelu regresji logistycznej oraz lasu losowego. Sprawdź wyniki i napisz kilka krótkich wniosków.
+
+# Rozwiązanie
+
+Na wstępie chcę dodać, że lekko zmodyfikuje poprzednie zadanie. Obszar pod krzywą ROC wynosił 0.952.
+
+Celem lepszego sprawdzenia efektywności metod resamplingu zmniejszę ilość zmiennych użytych do przewidywania wartości ozonu, co powinno pogorszyć wynik i lepiej pokazać różnice pomiędzy wytrenowanymi modelami, niż gdy wszystkie będą "prawie idealne".
+
+## Model z poprzedniego zadania:
+
 ```{r}
 #| echo: false
-2 * 2
+colnames(airquality) <- tolower(colnames(airquality))
+air <- mydata |> selectByDate(year = 2001) 
+air |> skim()
+air <- air |> na.omit()
+
+set.seed(222)
+
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+Przyjmijmy założenie, że wysokie stężenia ozonu, to O3\>10μgm3O3​\>10m3μg​, a niskie to O3\<10μgm3O3​\<10m3μg​. Skorzystamy z podstawowej funkcji `cut` do przekształcenia zmiennej ilościowej na jakościową.
+
+```{r}
+air |> 
+  pull(o3) |> 
+  range()
+
+air <-
+  air |>
+  mutate(ozone = cut(
+    o3,
+    breaks = c(-0.1, 10, 58),
+    labels = c("Niskie", "Wysokie")
+  ))
+```
+
+Teraz dodatkowo w kontraście do porzedniego zadania, usuniemy jeszcze pole nox, no2, wd, ws, pm10 i pm25.
+
+```{r}
+# Usunięcie kolumny z ozonem, który chcemy przewidzieć
+air <- air |> 
+  na.omit() |> 
+  select(-o3, -nox, -pm10, -pm25, -no2, -wd, -ws)
+
+```
+
+Podział danych na treningowe i testowe z rozkładem równomiernym zmiennej "ozone"
+
+```{r}
+split <- initial_split(data = air, prop = 3/4)
+train_data <- training(split)
+test_data <- testing(split)
+     
+```
+
+Teraz zostaje zbudowany identyczny jak poprzednio przepis do przetworzenia danych:
+
+```{r}
+air_rec <- recipe(ozone ~., data = train_data) |> 
+  update_role(date, so2, co, new_role = "predictor") |> 
+  step_date(date, features = c("month")) |> 
+  step_time(date, features = c("hour")) |>
+  step_mutate(date_hour = as.factor(date_hour)) |>  
+  step_normalize(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) |> 
+  step_zv()
+
+air_rec |> prep()
+
+#sprawdzenie przepisu:
+summary(air_rec)
+```
+
+Mamy skategoryzowane role w zbiorze danych, teraz należy zbudować model regresji liniowej.
+
+```{r}
+lm_mod <- logistic_reg() |> 
+  set_engine("glm")
+
+
+lm_wf <-
+  workflow() |> 
+  add_model(lm_mod) |> 
+  add_recipe(air_rec)
+
+lm_fit <- lm_wf |> 
+  fit(data = train_data)
+
+```
+
+Teraz porownujemy otrzymane rozwiązanie ze zbiorem wcześniej oddzielonym na zbior testowy:
+
+```{r}
+
+#predict(lm_fit, test_data, type = "prob")
+
+results <- 
+  augment(lm_fit, test_data)
+
+results |> 
+  roc_auc(truth = ozone, .pred_Niskie)
+
+results |> accuracy(truth = ozone, .pred_class)
+```
+
+Po zmniejszeniu danych wejściowych otrzymujemy pole pod krzywą ROC 0.931 i dokładność klasyfikacji 0.885.
+
+## Modele z uzyciem metody resamplingu
+
+Na początek przygotujemy model lasu losowego:
+
+```{r}
+#| echo: false
+
+rf_mod <- 
+  rand_forest() |> 
+  set_engine("ranger") |> 
+  set_mode("classification")
+
+rf_wf <- 
+  workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(air_rec)
+
+```
+
+
+Teraz przygotujemy dane na trenowanie modelu metodą V-fold, CV i bootstrap:
+
+```{r}
+folds <- vfold_cv(data = train_data, v = 10)
+
+folds_rep <- vfold_cv(data = train_data, v = 10, repeats = 5)
+
+folds_bootstrap <- bootstraps(data=train_data, times=5)
+
+```
+
+Czas na wytrenowanie obydwu modeli przy użyciu każdej metody resamplingu, a także dodatkowo wytrenowanie modelu lasu losowego bez resamplingu (nie było to wcześniej robione).
+
+```{r}
+#Regresja liniowa z resamplingiem
+
+lm_fit_vcv <- 
+  lm_wf |> 
+  fit_resamples(folds)
+
+lm_fit_bootstrap <- 
+  lm_wf |>
+  fit_resamples(folds_bootstrap) 
+
+lm_fit_vcv_res3 <- 
+  lm_wf |> 
+  fit_resamples(folds_rep)
+
+#las losowy z resamplingiem
+
+rf_fit_vcv <- 
+  rf_wf |> 
+  fit_resamples(folds)
+
+rf_fit_bootstrap <- 
+  rf_wf |>
+  fit_resamples(folds_bootstrap) 
+
+rf_fit_vcv_res3 <- 
+  rf_wf |> 
+  fit_resamples(folds_rep) #zajmuje dużo czasu ;/
+
+#las losowy
+rf_fit<- 
+  rf_wf |> 
+  fit(train_data)
+```
+## Przedstawienie wydajności modelów
+
+Teraz sprawdzamy wyniki każdego z naszych modeli i przedstawiamy je w tabeli:
+
+
+```{r}
+models_results <- bind_rows(
+  #część z resamplingiem
+  lm_fit_vcv |>
+    collect_metrics() |> 
+    mutate(.method = "lm_fit_vcv"),
+  
+  lm_fit_bootstrap |>
+    collect_metrics() |> 
+    mutate(.method = "lm_fit_bootstrap"),
+  
+  lm_fit_vcv_res3 |>
+    collect_metrics() |> 
+    mutate(.method = "lm_fit_vcv_res3"),
+  
+  rf_fit_vcv |>
+    collect_metrics() |> 
+    mutate(.method = "rf_fit_vcv"),
+  
+  rf_fit_bootstrap |>
+    collect_metrics() |> 
+    mutate(.method = "rf_fit_bootstrap"),
+  
+  rf_fit_vcv_res3 |>
+    collect_metrics() |> 
+    mutate(.method = "rf_fit_vcv_res3"),
+  
+  bind_rows(
+  augment(rf_fit, test_data) |>
+    roc_auc(truth = ozone, .pred_Niskie),
+  
+  augment(rf_fit, test_data) |>
+    accuracy(truth = ozone, .pred_class)) |>
+    rename("mean" = ".estimate" ) |> 
+    select(-.estimator) |> mutate(.method = "rf_fit"),
+  
+  bind_rows(
+  augment(lm_fit, test_data) |>
+    roc_auc(truth = ozone, .pred_Niskie),
+  
+  augment(lm_fit, test_data) |>
+    accuracy(truth = ozone, .pred_class)) |>
+    rename("mean" = ".estimate" ) |> 
+    select(-.estimator) |> mutate(.method = "lm_fit")
+  
+) |>
+  filter(.metric == "accuracy" | .metric == "roc_auc") |>
+  select(-.estimator, -n, -std_err, -.config)
+
+
+models_results
+```
+
+
+Przedstawienie tego na wykresie słupkowym:
+
+```{r}
+ggplot(models_results, aes(x = .method, y = mean, fill = .metric)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Performance Metrics by Method",
+       x = "Method",
+       y = "Mean Value") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  coord_cartesian(ylim = c(0.80, 0.95))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+Wnioski:
+Zastosowanie metod resamplingu przy użyciu większego nakładu mocy obliczeniowej minimalnie polepszyło nam wydajność modelu. 
+Jeżeli bardzo nam zależy na wydajności, warto jest przeprowadzić resampling, bądź też zmienić model.
+Na wykresie widać, że nie zawsze próbkowanie musi mieć pozytywne skutki, zastosowanie metody bootstrap pogorszyło parametry.
+Warto zbierać i porównywać wyniki różnych metod oraz nadanych im parametrów, aby znaleźć możliwie najlepszy model.
+
