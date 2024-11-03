@@ -303,6 +303,8 @@ ggplot(models_results, aes(x = .method, y = mean, fill = .metric)) +
 
 
 Wnioski:
-Zastosowanie metod resamplingu przy użyciu większego nakładu mocy obliczeniowej minimalnie polepszyło nam wydajność modelu. Jeżeli bardzo nam zależy na wydajności, warto jest przeprowadzić resampling, bądź też zmienić model.Na wykresie widać, że nie zawsze próbkowanie musi mieć pozytywne skutki
+Zastosowanie metod resamplingu przy użyciu większego nakładu mocy obliczeniowej minimalnie polepszyło nam wydajność modelu. 
+Jeżeli bardzo nam zależy na wydajności, warto jest przeprowadzić resampling, bądź też zmienić model.
+Na wykresie widać, że nie zawsze próbkowanie musi mieć pozytywne skutki, zastosowanie metody bootstrap pogorszyło parametry.
 Warto zbierać i porównywać wyniki różnych metod oraz nadanych im parametrów, aby znaleźć możliwie najlepszy model.
 
