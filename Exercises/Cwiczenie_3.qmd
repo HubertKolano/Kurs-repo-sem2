@@ -64,7 +64,7 @@ Celem lepszego sprawdzenia efektywności metod resamplingu zmniejszę ilość zm
 ## Model z poprzedniego zadania:
 
 ```{r}
-#| echo: false
+#| results: "hide"
 colnames(airquality) <- tolower(colnames(airquality))
 air <- mydata |> selectByDate(year = 2001) 
 air |> skim()
@@ -166,7 +166,7 @@ Po zmniejszeniu danych wejściowych otrzymujemy pole pod krzywą ROC 0.931 i dok
 Na początek przygotujemy model lasu losowego:
 
 ```{r}
-#| echo: false
+
 
 rf_mod <- 
   rand_forest() |> 
