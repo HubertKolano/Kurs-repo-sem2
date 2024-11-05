@@ -21,7 +21,7 @@ format:
     link-external-icon: true
     link-external-newwindow: true
     smooth-scroll: true
-    self-contained: true # a tu dobrze pan zrobił
+    self-contained: true
     citation: true
     theme: 
         dark: solar
@@ -36,23 +36,264 @@ execute:
   output: true
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
-```{r}
-1 + 1
-```
-
-You can add options to executable code like this
-
 ```{r}
 #| echo: false
-2 * 2
+library(tidymodels)
+library(skimr)
+library(recipes)
+library(ggplot2)
+library(openair)
+library(rpart.plot)  # wizualizacja drzew decyzyjnych 
+library(vip)         # wykres wagi zmiennych
+
+tidymodels_prefer()
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+## Treść zadania
+
+Zoptymalizuj hiper-parametry w modelu lasu losowego utworzonego w ćwiczeniu nr 3. Dostosuj ilość współczynników w siatce hiper-parametrów.
+
+## Utworzenie modelu lasu losowego
+
+Najpierw towrzę model lasu losowego adekwatnie analogicznie jak w poprzednim zadaniu.
+
+```{r}
+#| results: "hide"
+#| 
+colnames(airquality) <- tolower(colnames(airquality))
+air <- mydata |> selectByDate(year = 2001) 
+air |> skim()
+air <- air |> na.omit()
+
+set.seed(222)
+air |> 
+  pull(o3) |> 
+  range()
+
+air <-
+  air |>
+  mutate(ozone = cut(
+    o3,
+    breaks = c(-0.1, 10, 58),
+    labels = c("Niskie", "Wysokie")
+  ))
+
+# Usunięcie kolumn celem utrudnienia pracy modelowi
+air <- air |> 
+  na.omit() |> 
+  select(-o3, -nox, -pm10, -pm25, -no2, -wd, -ws)
+
+split <- initial_split(data = air, prop = 3/4)
+train_data <- training(split)
+test_data <- testing(split)
+
+air_rec <- recipe(ozone ~., data = train_data) |> 
+  update_role(date, so2, co, new_role = "predictor") |> 
+  step_date(date, features = c("month")) |> 
+  step_time(date, features = c("hour")) |>
+  step_mutate(date_hour = as.factor(date_hour)) |>  
+  step_normalize(all_numeric_predictors()) |> 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) |> 
+  step_zv()
+
+air_rec |> prep()
+
+rf_mod <- 
+  rand_forest() |> 
+  set_engine("ranger") |> 
+  set_mode("classification")
+
+rf_wf <- 
+  workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(air_rec)
+
+rf_fit<- 
+  rf_wf |> 
+  fit(train_data)
+
+```
+
+Sprawdzamy jakie wyniki nam model lasu losowego, bez naszej ingerencji w hiper-parametry, zapiszemy je sobie do zmiennej, celem dalszego porównania:
+
+```{r}
+model_metrics <- bind_rows(
+  augment(rf_fit, test_data) |>
+      roc_auc(truth = ozone, .pred_Niskie),
+    
+    augment(rf_fit, test_data) |>
+      accuracy(truth = ozone, .pred_class)
+) |> select(-.estimator) |> 
+  mutate(.method = "rf_fit_classic")
+
+model_metrics
+```
+
+Teraz sprawdzimy trenowanie modelu lasu lotowego, kiedy manualnie ustawimy hiper-parametry na inne. W celu przetestowania dużej ilości kombinacji hiper-parametrów, tworzymy najpierw ich siatkę:
+
+```{r}
+parameters_net <- grid_regular(cost_complexity(), 
+                       tree_depth(), 
+                       levels = 5)
+# podgląd parametrów 
+
+parameters_net |> 
+  count(tree_depth)
+parameters_net |> 
+  count(cost_complexity)
+```
+
+Tworzymy teraz model z silnikiem rpart, który umozliwia modyfikacje hiper-parametrów, następnie zaczynamy trenowanie modelu dla wszystkich kombinacji hiper-parametrów.
+
+```{r}
+
+tune_spec <- 
+  decision_tree(
+    cost_complexity = tune(), 
+    tree_depth = tune()) |> 
+  set_engine("rpart") |> 
+  set_mode("classification")
+
+work <- 
+  workflow() |> 
+  add_model(tune_spec) |> 
+  add_recipe(air_rec)
+
+# statystyki oceny dokładnosci modelu 
+
+miary_oceny <-
+  yardstick::metric_set(
+    accuracy,
+    roc_auc)
+
+# Optymalizacja 
+
+fit_tree <-
+  work |>
+  tune_grid(
+    resamples =  bootstraps(train_data, times = 1), # chcemy identyczne train data jak dla poprzedniego mdoelu
+    grid = parameters_net,
+    metrics = miary_oceny
+  )
+
+fit_tree |> collect_metrics()
+```
+
+Teraz tworzymy wykresy przedstawiające nasze parametry wydajnościowe modelu względem hiper-parametrów.
+
+```{r}
+fit_tree %>%
+  collect_metrics() %>%
+  mutate(tree_depth = factor(tree_depth)) %>%
+  ggplot(aes(cost_complexity, mean, color = tree_depth)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0)
+```
+
+Na wykresach bardzo dokładnie widać w jakichprzedziałach doboru parametrów model osiąga najlepszą wydajność
+
+Celem sprawdzenia obserwacji wykresu, ponawiam testy dla większych wartości tree_depth, gdyż widać że najwyższą wartośc osiągnał na max-ie, powinnysmy sprawdzić czy metryka dalej będzie rosła.
+
+Dodatkowo zawężam cost_complexity do przedziału w około którego najlepiej się sprawdzał, celem wyciągniacia najlepszej wydajności modelu.
+
+```{r}
+set.seed(222)
+#tworzymy nowe wartości dla siatki
+parameters_net <- grid_regular(cost_complexity(range = c(-3.5,-2)),#skala log 
+                       tree_depth(range = c(10L, 25L), trans = NULL), 
+                       levels = 5)
+
+#ponawiamy poprzednie czynności trenowania modelu
+
+fit_tree <-
+  work |>
+  tune_grid(
+    resamples =  bootstraps(train_data, times = 1), # chcemy identyczne train data jak dla poprzedniego mdoelu
+    grid = parameters_net,
+    metrics = miary_oceny
+  )
+
+fit_tree |>
+  collect_metrics()  |> 
+  mutate(tree_depth = factor(tree_depth))  |> 
+  ggplot(aes(cost_complexity, mean, color = tree_depth)) +
+  geom_line(size = 1.5, alpha = 0.6) +
+  geom_point(size = 2) +
+  facet_wrap(~ .metric, scales = "free", nrow = 2) +
+  scale_x_log10(labels = scales::label_number()) +
+  scale_color_viridis_d(option = "plasma", begin = .9, end = 0)
+
+```
+
+Wykresy wyraźnie inaczej się zachowują, sprawdzamy czy znaleźliśmy lepsze parametry
+
+```{r}
+fit_tree |> show_best(metric = "accuracy")
+```
+
+Sprawdzamy czy da się osiągnąc lepsze roc_auc
+
+```{r}
+fit_tree |> show_best(metric = "roc_auc")
+```
+
+Finalizujemy model i dobierając najlepsze parametry i porównujemy go z pierwotnym.
+
+```{r}
+best_mod <- fit_tree |> select_best(metric = "accuracy")
+
+final_mod <-  
+  work |> 
+  finalize_workflow(best_mod)
+
+final_fit <- 
+  final_mod |> 
+  last_fit(split)
+
+
+model_metrics <- bind_rows(model_metrics, bind_rows(
+  augment(final_fit) |>
+      roc_auc(truth = ozone, .pred_Niskie),
+    
+    augment(final_fit) |>
+      accuracy(truth = ozone, .pred_class)
+) |> select(-.estimator) |> 
+  mutate(.method = "rf_fit_new")
+)
+
+model_metrics
+```
+
+Metryki okazują się być nieco gorsze od tych dobieranych automatycznie. Sprawdzamy czy dosżło do nadmiernego dopasowania:
+
+```{r}
+final_fit |> 
+  collect_predictions() |> 
+  roc_curve(truth = ozone, .pred_Niskie) |> 
+  autoplot()
+```
+
+Podgląd drzewa decyzyjnego:
+
+```{r}
+final_fit |> 
+  extract_workflow() |> 
+  extract_fit_engine() |> 
+  rpart.plot(roundint = F)
+```
+
+Bardzo nieczytelne, wynika to z dobrania bardzo wysokiego parametru depth, sprawdźmy wykresem, jakie algorytm zmienne uznał za najważniejsze:
+
+```{r}
+# wykres 
+
+final_fit |> 
+  extract_workflow() |> 
+  extract_fit_parsnip() |>
+  vip() 
+```
+
+Wnioski: Przy bardziej skomplikowanych danych wejściowych hiper-parametry mogą okazać się pomocne, jednak automatyczne funkcje dobierania nastaw są bardzo dobrze dostrojone i cięzko je poprawić metodą prób i błędów.
