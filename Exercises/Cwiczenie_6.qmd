@@ -1,0 +1,261 @@
+---
+title: "Cwiczenie 6"
+author: "Hubert Kolano"
+date: today
+abstract-title: "Temat"
+abstract: " Konstrukcja modelu w tidymodels"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    toc-title: Spis Treści
+    number-sections: true
+    number-depth: 3
+    embed-resources: true
+    html-math-method: katex
+    code-tools: true
+    code-block-bg: true
+    code-fold: show
+    code-summary: "Show and hide code"
+    link-external-icon: true
+    link-external-newwindow: true
+    smooth-scroll: true
+    self-contained: true
+    citation: true
+    theme: 
+        dark: solar
+        light: flatly
+    fontsize: 1.0em
+    linestretch: 1.3
+    fig-align: center
+execute: 
+  echo: true
+  error: false
+  warning: false
+  output: true
+---
+
+```{r}
+#wczytanie niezbędnych bibliotek
+#| echo: false
+#| results: "hide"
+pkg = c(
+  "tidymodels",
+  "glmnet",
+  "ranger",
+  "rpart",
+  "readr",
+  "tidymodels",
+  "vip",
+  "ggthemes",
+  "openair",
+  "gt",
+  "ggdark"
+)
+pkg |> 
+  purrr::map(.f = ~ require(.x, character.only = T)) ; rm(pkg)
+
+tidymodels_prefer()
+```
+
+## Treść zadania
+
+Na podstawie danych `mydata` (1 rok) zaproponuj model prognozowania poziomów stężeń O~3~ (modele regresji). Zastosuj trzy metody:
+
+1.  regresja liniowa prosta (`glmnet`),
+
+2.  drzewa decyzyjne (`rpart`)
+
+3.  las losowy (`ranger`).
+
+Najważniejsze punkty:
+
+-   przekształć kierunek wiatru na zmienną kategoryczną, definiując 16 kierunków wiatru.
+
+-   utwórz zestaw walidacyjny bez resamplingu,
+
+-   utwórz receptury dla każdego modelu - sprawdź wymagania modeli,
+
+-   przeprowadź optymalizację hiper-parametrów,
+
+-   zbuduj ostateczny modele,
+
+-   Sprawdź który model był najlepszy,
+
+-   Najlepszą graficzną metodą porównania wyników oceny dokładności na zbiorze testowym jest wykres rozrzutu z linią modelu idealnego.
+
+## Rozwiązanie zadania
+
+Ponownie wczytujemy dane i tworzymy zmmienną jakościową anologiczne do poprzednich zadań.
+
+```{r}
+#| results: "hide"
+
+set.seed(222)
+
+colnames(airquality) <- tolower(colnames(airquality))
+air <- mydata |> selectByDate(year = 2001) 
+air <- air |> na.omit()
+
+air |> 
+  pull(o3) |> 
+  range()
+
+air <-
+  air |>
+  mutate(ozone = cut(
+    o3,
+    breaks = c(-0.1, 10, 58),
+    labels = c("Niskie", "Wysokie")
+  ))
+
+# Usunięcie kolumny o3 celem utrudnienia pracy modelowi
+air <- air |> 
+  na.omit() |> 
+  select(-o3)
+
+```
+
+Zanim rozpoczniemy następne analogiczne kroki, zmienimy teraz kierunek wiatru na zmienną kategoryczną, gdyż liczbowa wartość wiatru, może być niezrozumiała dla modelu:
+
+```{r}
+# Funkcja konwertująca kąt na 16-kierunkowy kompas
+wind_set_dir <- function(kat) {
+  directions <- c("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", 
+                "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")
+  #16 segmentów daje nam kąt równy 22.5 dla każdego segmentu. Należy pamiętać o poprawnym zakresie ustawienia segmentów, np. N zaczyna się nie od 0 a od -11.25 do 11.25
+  index <- floor((kat + 11.25) / 22.5) %% 16 + 1
+  
+  # zwrot wartości
+  directions[index]
+}
+
+
+air <- air |> 
+  mutate(wd = wind_set_dir(wd))
+
+```
+
+Teraz dzielimy dane na treningowe i testowe, dodatkowo utworzymy zbiór walidacyjny, gdyż ilość danych wystarczy do wstępnych przewidywań jakości modelu, a ograniczy nam potrzeby na moc obliczeniową.
+
+```{r}
+split <- initial_split(data = air, prop = 3/4, strata = ozone)
+train_data <- training(split)
+test_data <- testing(split)
+
+val_set <- validation_split(data = air, prop = 3/4, strata = ozone)
+
+
+```
+
+Teraz tworzymy modele jakie będziemy chcieli porównać, każdy z możliwościa modyfikowania hiper-parametrów.
+
+```{r}
+#przepis
+
+
+air_rec <- recipe(ozone ~., data = train_data) |> 
+  update_role(so2, co, nox, pm10, pm25, no2, wd, ws, new_role = "predictor") |> 
+  step_date(date, features = c("month")) |> 
+  step_time(date, features = c("hour")) |>
+  step_rm(date) |> 
+  step_mutate(date_hour = as.factor(date_hour)) |>  
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) |> 
+  step_zv(all_predictors())
+
+#air_rec |> prep() |>  bake(train_data) |> glimpse()
+
+#regresja liniowa
+
+lr_mod <-
+  logistic_reg(penalty = tune(),
+               mixture = 1) |>
+  set_engine(engine = "glmnet") |>
+  set_mode("classification")
+
+lr_workflow <-    
+  workflow() |>    
+  add_model(lr_mod) |>    
+  add_recipe(air_rec)
+
+
+# automat 
+lr_grid <- grid_regular(penalty(), levels = 30)  
+
+# manualnie 
+lr_grid <- tibble(penalty = 10^seq(-4, -1, length.out = 30))
+
+
+#trenowanie modelu
+lr_fit <-
+   lr_workflow |>
+  tune_grid(
+    resamples = val_set,
+    grid = lr_grid,
+    control = control_grid(save_pred = TRUE),
+    metrics = metric_set(roc_auc)
+  )
+#sprawdzamy wyniki ROC w zalezności od wartości penalty na wykresie
+
+lr_fit |>
+  collect_metrics() |>
+  ggplot(aes(penalty, mean)) +
+  geom_point(size = 2) +
+  geom_line(linetype = 2) +
+  ylab("Pole powierzchni pod krzywa ROC") +
+  scale_x_log10() +
+  geom_text(aes(
+    x = penalty,
+    y = mean + 0.03,
+    label = .config |> stringr::str_sub(20, 21)
+  )) + 
+  ggdark::dark_theme_dark()
+
+top_models <- 
+  lr_fit |> 
+  show_best(metric = "roc_auc", n = 15) |> 
+  arrange(penalty) |> 
+  mutate(mean = mean |> round(x = _, digits = 3)) |> 
+  select(-std_err)
+
+top_models |> gt::gt()
+
+```
+
+Las losowy:
+
+```{r}
+
+rf_mod <- 
+  rand_forest() |> 
+  set_engine("ranger") |> 
+  set_mode("classification")
+
+
+rf_wf <- 
+  workflow() |> 
+  add_model(rf_mod) |> 
+  add_recipe(air_rec)
+
+rf_fit<- 
+  rf_wf |> 
+  fit(train_data)
+
+```
+
+```{}
+```
+
+```{r}
+
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
