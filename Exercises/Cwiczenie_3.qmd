@@ -113,13 +113,13 @@ Teraz zostaje zbudowany identyczny jak poprzednio przepis do przetworzenia danyc
 
 ```{r}
 air_rec <- recipe(ozone ~., data = train_data) |> 
-  update_role(date, so2, co, new_role = "predictor") |> 
+  update_role(so2, co, new_role = "predictor") |> 
   step_date(date, features = c("month")) |> 
   step_time(date, features = c("hour")) |>
+  step_rm(date) |> 
   step_mutate(date_hour = as.factor(date_hour)) |>  
-  step_normalize(all_numeric_predictors()) |> 
   step_dummy(all_nominal_predictors(), one_hot = TRUE) |> 
-  step_zv()
+  step_zv(all_predictors())
 
 air_rec |> prep()
 
@@ -159,8 +159,6 @@ results |>
 results |> accuracy(truth = ozone, .pred_class)
 ```
 
-Po zmniejszeniu danych wejściowych otrzymujemy pole pod krzywą ROC 0.931 i dokładność klasyfikacji 0.885.
-
 ## Modele z uzyciem metody resamplingu
 
 Na początek przygotujemy model lasu losowego:
@@ -184,9 +182,9 @@ rf_wf <-
 Teraz przygotujemy dane na trenowanie modelu metodą V-fold, CV i bootstrap:
 
 ```{r}
-folds <- vfold_cv(data = train_data, v = 10)
+folds <- vfold_cv(data = train_data, v = 5)
 
-folds_rep <- vfold_cv(data = train_data, v = 10, repeats = 5)
+folds_rep <- vfold_cv(data = train_data, v = 5, repeats = 5)
 
 folds_bootstrap <- bootstraps(data=train_data, times=5)
 
