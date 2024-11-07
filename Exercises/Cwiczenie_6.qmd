@@ -212,25 +212,32 @@ lr_fit |>
   )) + 
   ggdark::dark_theme_dark()
 
-top_models <- 
-  lr_fit |> 
-  show_best(metric = "roc_auc", n = 15) |> 
-  arrange(penalty) |> 
-  mutate(mean = mean |> round(x = _, digits = 3)) |> 
-  select(-std_err)
+best_model_lr <- 
+lr_fit |> 
+  select_best(metric = "roc_auc") 
+best_model_lr
+lr_fit |> show_best(n = 1)
 
-top_models |> gt::gt()
 
+ lr_auc <-  lr_fit |> 
+  collect_predictions(parameters = best_model_lr) |> 
+  roc_curve(ozone, .pred_Niskie) |> 
+  mutate(model = "Logistic Regression")
+autoplot(lr_auc)
 ```
 
 Las losowy:
 
 ```{r}
+cores <- parallel::detectCores()
 
-rf_mod <- 
-  rand_forest() |> 
-  set_engine("ranger") |> 
-  set_mode("classification")
+rf_mod <-
+  rand_forest(mtry = tune(),
+              min_n = tune(),
+              trees = 1000) |>
+  set_engine(engine = "ranger",
+             num.threads = cores - 1) |>
+  set_mode(mode = "classification")
 
 
 rf_wf <- 
@@ -240,22 +247,67 @@ rf_wf <-
 
 rf_fit<- 
   rf_wf |> 
-  fit(train_data)
+  tune_grid(resamples = val_set, 
+            grid = 25, 
+            control = control_grid(save_pred = T),
+            metrics = metric_set(roc_auc))
 
+best_model_rf <-  rf_fit |> select_best(metric = "roc_auc")
+
+rf_fit |> show_best(n = 1)
+
+rf_auc <-
+  rf_fit |>
+  collect_predictions(parameters = best_model_rf) |>
+  roc_curve(ozone, .pred_Niskie) |>
+  mutate(model = "Random Forest")
+
+rf_auc |> 
+  autoplot()
+
+bind_rows(lr_auc,rf_auc) |> 
+  ggplot(aes(x = 1 - specificity, y = sensitivity, col = model)) +
+  geom_path(lwd = 1.5) +
+  geom_abline(lty = 3) + 
+  coord_equal() +
+  scale_color_manual(values = c("black", "white"))
 ```
 
-```{}
+```         
 ```
+
+Model lasu losowego jest minimalnie lepszy, wybieramy go do zbudowania ostatecznego modelu i porównamy wynik końcowy z przewidywanym.
 
 ```{r}
+last_rf_mod <- 
+  rand_forest(mtry = best_model_rf$mtry, min_n = best_model_rf$min_n, trees = 1000) |> 
+  set_engine("ranger", num.threads = cores-2, importance = "impurity") |> 
+  set_mode("classification")
 
+last_rf_work <- 
+  rf_wf |> 
+  update_model(last_rf_mod)
+
+last_rf_fit <- 
+  last_rf_work |> 
+  last_fit(split = split)
+
+last_rf_fit
+
+last_rf_fit |> 
+  collect_metrics()
 ```
 
-You can add options to executable code like this
+Finalne wyniki są niewiele mniejsze od tych zakładanych. Wytrenowaliśmy model o bardzo dobrej jakości.
+
+Podgląd wag predyktorów modelu:
 
 ```{r}
-#| echo: false
-2 * 2
+last_rf_fit |> 
+  extract_fit_parsnip() |> 
+  vip(num_features = 20) +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  geom_boxplot(color = "black", fill = "grey85") +
+  ggdark::dark_theme_dark()
 ```
-
-The `echo: false` option disables the printing of code (only output is displayed).
