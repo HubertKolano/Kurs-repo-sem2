@@ -88,13 +88,13 @@ train_data <- training(split)
 test_data <- testing(split)
 
 air_rec <- recipe(ozone ~., data = train_data) |> 
-  update_role(date, so2, co, new_role = "predictor") |> 
+  update_role(so2, co, new_role = "predictor") |> 
   step_date(date, features = c("month")) |> 
   step_time(date, features = c("hour")) |>
+  step_rm(date) |> 
   step_mutate(date_hour = as.factor(date_hour)) |>  
-  step_normalize(all_numeric_predictors()) |> 
   step_dummy(all_nominal_predictors(), one_hot = TRUE) |> 
-  step_zv()
+  step_zv(all_predictors())
 
 air_rec |> prep()
 
@@ -195,15 +195,14 @@ fit_tree %>%
 
 Na wykresach bardzo dokładnie widać w jakichprzedziałach doboru parametrów model osiąga najlepszą wydajność
 
-Celem sprawdzenia obserwacji wykresu, ponawiam testy dla większych wartości tree_depth, gdyż widać że najwyższą wartośc osiągnał na max-ie, powinnysmy sprawdzić czy metryka dalej będzie rosła.
+Celem sprawdzenia obserwacji wykresu, ponawiam testy dla wartości parametrów tree_depth i cost_complexity, do mniejszego przedziału w około którego najlepiej się sprawdzał, celem wyciągniacia najlepszej wydajności modelu.
 
-Dodatkowo zawężam cost_complexity do przedziału w około którego najlepiej się sprawdzał, celem wyciągniacia najlepszej wydajności modelu.
 
 ```{r}
 set.seed(222)
 #tworzymy nowe wartości dla siatki
 parameters_net <- grid_regular(cost_complexity(range = c(-3.5,-2)),#skala log 
-                       tree_depth(range = c(10L, 25L), trans = NULL), 
+                       tree_depth(range = c(3L, 9L), trans = NULL), 
                        levels = 5)
 
 #ponawiamy poprzednie czynności trenowania modelu
@@ -243,7 +242,7 @@ fit_tree |> show_best(metric = "roc_auc")
 Finalizujemy model i dobierając najlepsze parametry i porównujemy go z pierwotnym.
 
 ```{r}
-best_mod <- fit_tree |> select_best(metric = "accuracy")
+best_mod <- fit_tree |> select_best(metric = "roc_auc")
 
 final_mod <-  
   work |> 
