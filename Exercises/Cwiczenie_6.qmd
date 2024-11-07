@@ -3,7 +3,7 @@ title: "Cwiczenie 6"
 author: "Hubert Kolano"
 date: today
 abstract-title: "Temat"
-abstract: " Konstrukcja modelu w tidymodels"
+abstract: "Konstrukcja modelu w tidymodels"
 format: 
   html:
     toc: true
@@ -311,3 +311,5 @@ last_rf_fit |>
   geom_boxplot(color = "black", fill = "grey85") +
   ggdark::dark_theme_dark()
 ```
+
+Kroki wykonane w tym zadaniu pozwalają wybrać najbardziej optymalny model, przy ograniczeniu potrzebnych zasobów obliczeniowych, aby "podglądnąć" ich wydajność zanim go w pełni zbudujemy. W tym przypadku różnica między modelami była znikoma, jednak często wybór modelu może nie być taki oczywisty, a różnica w ich wydajności może być znacząca.
