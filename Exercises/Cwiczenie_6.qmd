@@ -36,11 +36,13 @@ execute:
   output: true
 ---
 
+## Pakiety 
+
 ```{r}
-#wczytanie niezbędnych bibliotek
-#| echo: false
+#| echo: true
 #| results: "hide"
-pkg = c(
+#| label: Pakiety
+pkg <- c(
   "tidymodels",
   "glmnet",
   "ranger",
@@ -53,8 +55,12 @@ pkg = c(
   "gt",
   "ggdark"
 )
-pkg |> 
-  purrr::map(.f = ~ require(.x, character.only = T)) ; rm(pkg)
+
+pkg |>
+  purrr::map(
+    .f = ~ require(.x, character.only = T) |> paste(.x)
+  )
+rm(pkg)
 
 tidymodels_prefer()
 ```
@@ -64,9 +70,7 @@ tidymodels_prefer()
 Na podstawie danych `mydata` (1 rok) zaproponuj model prognozowania poziomów stężeń O~3~ (modele regresji). Zastosuj trzy metody:
 
 1.  regresja liniowa prosta (`glmnet`),
-
 2.  drzewa decyzyjne (`rpart`)
-
 3.  las losowy (`ranger`).
 
 Najważniejsze punkty:
