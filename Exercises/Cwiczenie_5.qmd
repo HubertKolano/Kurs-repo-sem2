@@ -98,8 +98,8 @@ air_rec <- recipe(ozone ~., data = train_data) |>
 air_rec |> prep()
 
 rf_mod <- 
-  rand_forest() |> 
-  set_engine("ranger") |> 
+  decision_tree() |> 
+  set_engine("rpart") |> 
   set_mode("classification")
 
 rf_wf <- 
@@ -190,6 +190,8 @@ fit_tree %>%
   facet_wrap(~ .metric, scales = "free", nrow = 2) +
   scale_x_log10(labels = scales::label_number()) +
   scale_color_viridis_d(option = "plasma", begin = .9, end = 0)
+
+fit_tree |> show_best(metric = "roc_auc")
 ```
 
 Na wykresach bardzo dokładnie widać w jakichprzedziałach doboru parametrów model osiąga najlepszą wydajność
@@ -243,6 +245,8 @@ Finalizujemy model i dobierając najlepsze parametry i porównujemy go z pierwot
 ```{r}
 best_mod <- fit_tree |> select_best(metric = "roc_auc")
 
+best_mod
+
 final_mod <-  
   work |> 
   finalize_workflow(best_mod)
@@ -265,7 +269,7 @@ model_metrics <- bind_rows(model_metrics, bind_rows(
 model_metrics
 ```
 
-Metryki okazują się być nieco gorsze od tych dobieranych automatycznie. Sprawdzamy czy dosżło do nadmiernego dopasowania:
+Model wytrenowany na pełnych danych ma nieco gorsze parametry, jednak jest o wiele lepszy niż ten wytrenowany z domyślnymi parametrami.
 
 ```{r}
 final_fit |> 
@@ -293,5 +297,7 @@ final_fit |>
   extract_fit_parsnip() |>
   vip() 
 ```
-
-Wnioski: Przy bardziej skomplikowanych danych wejściowych hiper-parametry mogą okazać się pomocne, jednak automatyczne funkcje dobierania nastaw są bardzo dobrze dostrojone i cięzko je poprawić metodą prób i błędów.
+Wnioski:
+Możliwość dostrajania hiper-parametrów daje nam większą kontrole nad dostrajaniem się modelu, w efekcie czego możemy podnieść jego wydajność.
+Taki zabieg wymaga większej mocy obliczeniowej, warto więc sprawdziać siatki hiper-parametrów przy użyciu mniejszych danych treningowych, a następnie zbudować w pełni najlepszy model.
+Takie podejście pomoże nam w budowaniu modelu z jak najlepszą wydajnością.
